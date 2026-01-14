@@ -3,9 +3,8 @@ name: Daily Sense Briefing
 on:
   schedule:
     # 6:00 AM HKT (22:00 UTC prev day) and 8:00 PM HKT (12:00 UTC)
-    - cron: '0 22 * * *' # 06:00 HKT
-    - cron: '0 12 * * *' # 20:00 HKT
-    - cron: '0 14 * * *' # 22:00 HKT (Testing)
+    - cron: "0 22 * * *" # 06:00 HKT
+    - cron: "0 12 * * *" # 20:00 HKT
   workflow_dispatch:
 
 permissions:
@@ -48,7 +47,7 @@ jobs:
         run: |
           git config user.name "Kazuha Bot"
           git config user.email "bot@investsense.ai"
-          
+
           # Check if there are changes
           if [[ -n $(git status -s) ]]; then
             echo "Changes detected. Committing..."
