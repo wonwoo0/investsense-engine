@@ -25,9 +25,11 @@
 *   **觸發時間**: 每日 06:00 AM & 20:00 PM (HKT)。
 *   **執行者**: GitHub Actions (`daily_brief.yml`)。
 *   **動作**:
-    1.  `scout_hunter.py`: 掃描宏觀主題 (Macro Themes) 的機會。
-    2.  `scout_shield.py`: 掃描持倉 (Portfolio) 的風險。
-    3.  **Data Commit**: 自動將 JSON 結果 push 到 **Private Data Repo** 的 `Incoming/` 資料夾。
+    1.  `scout_feed.py`: 抓取 `data/sources.yml` 中的 RSS 訂閱。
+    2.  `scout_hunter.py`: 掃描宏觀主題 (Macro Themes) 的機會。
+    3.  `scout_shield.py`: 掃描持倉 (Portfolio) 的風險。
+    4.  `scout_dedup.py`: **[重要]** 語義去重並合併所有情報為單一 JSON。
+    5.  **Data Commit**: 自動將 `consolidated_signals_*.json` push 到 **Private Data Repo**。
 
 ---
 
@@ -41,7 +43,7 @@
 cd ~/kazuha/investsense/data
 git pull origin main
 ```
-*   **檢查點**: 確認 `data/Incoming/` 目錄下是否有今日日期的 `hunter_*.json` 或 `shield_*.json`。
+*   **檢查點**: 確認 `data/Incoming/` 目錄下是否有最新生成的 `consolidated_signals_*.json`。
 
 ---
 
