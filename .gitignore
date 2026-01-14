@@ -1,59 +1,13 @@
-# Environment variables and secrets
-.env
-.env.local
-.env.*
-*.key
-*.pem
-secrets.yaml
-secrets.yml
-
 # Python
 __pycache__/
 *.py[cod]
-*$py.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-share/python-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
-
-# Virtual Environment
-venv/
-env/
-ENV/
+*.class
+.env
 .venv/
 
-# IDE settings
-.vscode/
-.idea/
+# Data Repository (Private)
+data/
+!data/.gitkeep
 
-# Kazuha Specific - PRIVATE DATA PROTECTION
-# These should reside in the Private Data Repo, NOT here
-kazuha-invest-data/
-Data/
-Reports/
-Incoming/
-portfolio.yml
-watchlist.yml
-config/secrets.yml
-*.json
-!config/portfolio.example.yml
-!config/watchlist.example.yml
-
-# Logs
-logs/
-*.log
+# OS
+.DS_Store

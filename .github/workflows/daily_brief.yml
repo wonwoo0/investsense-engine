@@ -1,0 +1,60 @@
+name: Daily Sense Briefing
+
+on:
+  schedule:
+    # 6:00 AM HKT (22:00 UTC prev day) and 8:00 PM HKT (12:00 UTC)
+    - cron: '0 22 * * *' # 06:00 HKT
+    - cron: '0 12 * * *' # 20:00 HKT
+    - cron: '0 14 * * *' # 22:00 HKT (Testing)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sense-and-report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Engine (Public)
+        uses: actions/checkout@v4
+
+      - name: Checkout Data (Private)
+        uses: actions/checkout@v4
+        with:
+          repository: wonwoo0/investsense-data
+          token: ${{ secrets.PAT_TOKEN }}
+          path: data
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Set up Python
+        run: uv python install
+
+      - name: Install Dependencies
+        run: uv sync --frozen || uv pip install -r pyproject.toml || uv pip install duckduckgo-search requests pyyaml python-dotenv
+
+      - name: Run Shield Scout (Defense)
+        run: uv run python src/scout_shield.py
+        env:
+          PYTHONUNBUFFERED: 1
+
+      # Add Hunter Scout here later
+      - name: Run Hunter Scout (Offense)
+        run: uv run python src/scout_hunter.py
+
+      - name: Check for Changes and Push Data
+        working-directory: data
+        run: |
+          git config user.name "Kazuha Bot"
+          git config user.email "bot@investsense.ai"
+          
+          # Check if there are changes
+          if [[ -n $(git status -s) ]]; then
+            echo "Changes detected. Committing..."
+            git add .
+            git commit -m "Auto-update: Shield Alerts [skip ci]"
+            git push
+          else
+            echo "No changes to data."
+          fi
