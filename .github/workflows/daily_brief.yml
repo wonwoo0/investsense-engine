@@ -31,16 +31,27 @@ jobs:
         run: uv python install
 
       - name: Install Dependencies
-        run: uv sync --frozen || uv pip install -r pyproject.toml || uv pip install duckduckgo-search requests pyyaml python-dotenv
+        run: uv sync --frozen || uv pip install -r pyproject.toml || uv pip install duckduckgo-search requests pyyaml python-dotenv feedparser sentence-transformers scikit-learn numpy
+
+      - name: Run RSS Scout (Passive)
+        run: uv run python src/scout_feed.py
+        env:
+          PYTHONUNBUFFERED: 1
 
       - name: Run Shield Scout (Defense)
         run: uv run python src/scout_shield.py
         env:
           PYTHONUNBUFFERED: 1
 
-      # Add Hunter Scout here later
       - name: Run Hunter Scout (Offense)
         run: uv run python src/scout_hunter.py
+        env:
+          PYTHONUNBUFFERED: 1
+
+      - name: Run Semantic Deduplication
+        run: uv run python src/scout_dedup.py
+        env:
+          PYTHONUNBUFFERED: 1
 
       - name: Check for Changes and Push Data
         working-directory: data
