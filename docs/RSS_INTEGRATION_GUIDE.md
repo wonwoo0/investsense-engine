@@ -14,11 +14,25 @@
 
 ### 升級後系統 (Phase 2)
 ```
-[DuckDuckGo Search] ──┐
-                        ├─→ [Rule Filter] → [AI Filter] → [Semantic Dedup] → [Incoming/*.json]
-[RSS Feeds (7 sources)] ─┘
-   ↑ 被動：發現你不知道的機會
+[RSS Feeds]     ──┐
+[DDG Hunter]    ──┼─→ [Rule Filter] → [Semantic Dedup] → data/Incoming/consolidated_YYYYMMDD.json
+[DDG Shield]    ──┘                                              ↓
+                                                        [Brain Reasoning] → Reports/
 ```
+**數據流向說明**：
+1. **原始數據** (`data/Incoming/`):
+   - `rss_results_*.json` — RSS Feed 抓取結果
+   - `hunter_results_*.json` — 宏觀主題搜尋結果
+   - `shield_results_*.json` — 持倉風險監測結果
+
+2. **合併去重** (`src/scout_dedup.py`):
+   - 讀取上述所有 `*_results_*.json`
+   - 執行語義去重 (Embedding Similarity)
+   - 輸出 → `data/Incoming/consolidated_YYYYMMDD.json` ⭐
+
+3. **本地推理** (`src/brain_reasoning.py`):
+   - **只讀取** `consolidated_*.json`（已去重的高質量數據）
+   - 生成 Daily Alpha 報告
 
 ---
 
