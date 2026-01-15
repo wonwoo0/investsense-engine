@@ -1,101 +1,76 @@
-# 🔄 Kazuha Invest 2.0 Operational Workflow (Vibe-Hunter Manual)
+# 🔄 Kazuha Invest 2.0 Operational Workflow (Vibe-Hunter 2.1 Manual)
 
-這份文件詳細記錄了 Kazuha Invest 2.0 的 **「雲端感知 + 本地推理」** 完整操作流程。未來的 Agent 應嚴格遵循此流程以確保情報閉環運作。
+本文件詳述 Kazuha Invest 2.0 的 **「異構算力分發 (Heterogeneous Compute) + 深度情資獵殺」** 完整操作流程。這套系統旨在實現從「被動接收」到「主動預知」的投資轉型。
 
 ---
 
 ## 🏗 架構概覽 (Architecture)
 
-系統分為兩個倉庫 (Twin-Repo System)：
+### 1. 雙倉庫體系 (Twin-Repo System)
+*   **Engine Repo (Public)**: `investsense-engine`
+    *   負責所有自動化腳本、API 調度及 GitHub Actions 工作流。
+*   **Data Repo (Private)**: `investsense-data`
+    *   負責儲存敏感的持倉數據 (`portfolio.yml`)、情資來源 (`sources.yml`)、原始信號 (`Incoming/`) 及最終報告 (`Reports/`)。
 
-1.  **🧠 Engine (Public)**: `investsense-engine`
-    *   存放 Python 代碼、GitHub Actions 腳本。
-    *   位置：`~/kazuha/investsense`
-2.  **🗄️ Data (Private)**: `investsense-data`
-    *   存放持倉 (`portfolio.yml`)、原始情報 (`Incoming/`)、最終報告 (`Reports/`)。
-    *   位置：`~/kazuha/investsense/data` (作為 Submodule 或 nested git repo 存在)。
+### 2. 異構算力矩陣 (Model Factory)
+系統根據任務難度，自動調度 OpenRouter 免費模型陣容：
+| 任務階段 | 職能 | 推薦模型 (OpenRouter:free) | 亮點 |
+| :--- | :--- | :--- | :--- |
+| **感官 (Sensing)** | 抓取、長文閱讀 | Gemini 2.0 Flash | 1M 超長上下文 |
+| **提取 (Extract)** | HTML 轉 JSON | Qwen3 Coder | 極強的結構化輸出能力 |
+| **篩選 (Filter)** | 相關性打分 | GLM 4.5 Air | 工具執行力高，速度快 |
+| **推理 (Reasoning)**| 二階推演 | DeepSeek R1 (Chimera) | 高 IQ 邏輯思維，紅藍對抗 |
+| **精修 (Synthesis)**| 報告撰寫 | Llama 3.1 405B | 文筆穩健，指令遵循強 |
 
 ---
 
 ## 🔄 每日循環流程 (The Daily Loop)
 
-### Step 1: Cloud Sensing (雲端感知)
+### Step 1: Cloud Scouting (全域偵測)
 *自動執行，無需人工干預*
-
-*   **觸發時間**: 每日 06:00 AM & 20:00 PM (HKT)。
-*   **執行者**: GitHub Actions (`daily_brief.yml`)。
+*   **時間**: 每日 07:00 AM & 21:00 PM (HKT)。
 *   **動作**:
-    1.  `scout_feed.py`: 抓取 `data/sources.yml` 中的 RSS 訂閱。
-    2.  `scout_hunter.py`: 掃描宏觀主題 (Macro Themes) 的機會。
-    3.  `scout_shield.py`: 掃描持倉 (Portfolio) 的風險。
-    4.  `scout_dedup.py`: **[重要]** 語義去重並合併所有情報為單一 JSON。
-    5.  **Data Commit**: 自動將 `consolidated_signals_*.json` push 到 **Private Data Repo**。
+    1.  **`scout_gov.py`**: 同時監控 **SAM.gov** (未來招標) 與 **US Spending** (歷史合約確認)。
+    2.  **`scout_social.py`**: 監控 **Reddit** 垂直技術板塊 (如 r/Semiconductors)。
+    3.  **`scout_feed.py`**: 抓取 **RSS** 高權重新聞源 (如 SpaceNews, World Nuclear News)。
+    4.  **`scout_shield.py`**: 針對持倉進行 **負面關鍵字掃描** (DEFCON 1 級別)。
+    5.  **`scout_hunter.py`**: 基於宏觀主題 (Macro Themes) 的 **機會挖掘**。
+    6.  **`scout_labor.py`**: 透過 LinkedIn/Indeed 監控 **人才招聘趨勢**。
+
+### Step 2: Semantic Deduplication (語義去重)
+*   **指令**: `uv run -m src.scout_dedup`
+*   **邏輯**: 使用 `all-MiniLM-L6-v2` 嵌入模型計算向量相似度。
+*   **產出**: 將海量碎片合併為單一 `consolidated_signals.json`。
+
+### Step 3: Local Brain Reasoning (本地/雲端大腦推理)
+*   **指令**: `uv run -m src.brain_reasoning`
+*   **核心動作**:
+    1.  讀取合併後的信號與持倉數據。
+    2.  **二階效應分析**: 「如果 A 發生，誰是受益的 B？」
+    3.  **幻覺修正**: 自動比對真實合同數據與新聞描述。
+    4.  **生成報告**: 寫入 `data/Reports/daily_alpha_YYYYMMDD.md`。
+
+### Step 4: Alpha Alerts (即時警報)
+*   **觸發機制**: 當 **Confidence > 85** 或 **Risk Score > 90** 時。
+*   **通道**: Telegram Bot 即時推送標題、得分與來源連結。
 
 ---
 
-### Step 2: Local Sync (本地同步)
-*Agent 介入點 - 開始工作前必須做*
+## 🤖 未來 Agent 操作指令 (Protocol)
 
-未來 Agent 在開始分析前，必須確保本地擁有最新的雲端情報。
-
-**指令**:
-```bash
-cd ~/kazuha/investsense/data
-git pull origin main
-```
-*   **檢查點**: 確認 `data/Incoming/` 目錄下是否有最新生成的 `consolidated_signals_*.json`。
+當你啟動 Kazuha 任務時，請依次執行：
+1.  **同步**: `git pull` 獲取最新 `investsense-data`。
+2.  **偵測**: 運行所有 `src/scout_*.py` 模組。
+3.  **分析**: 運行 `src/brain_reasoning.py` 生成深度報告。
+4.  **發布**: 將報告與新數據 `git push` 到私有倉庫。
 
 ---
 
-### Step 3: Local Brain Reasoning (本地推理)
-*Agent 核心任務*
+## 🛠 常見問題排除 (Troubleshooting)
 
-利用本地算力 (AI Agent) 讀取 raw data 並生成 Alpha 報告。
+### 🔴 數據抓取失敗 (403/429)
+*   **SEC/Reddit**: 檢查 `src/config.py` 中的 `USER_AGENT_EMAIL` 是否為真實邮箱。
+*   **SAM.gov**: 確保使用的是 **SAM Profile Key** 而非 Data.gov Key。
 
-1.  **讀取數據**: 讀取 `data/Incoming/` 所有 JSON 及 `data/portfolio.yml`。
-2.  **執行推理**: (目前由 Agent 協助，未來可運行 `src/brain_reasoning.py`)
-    *   識別 **二階效應 (Second-order effects)**。
-    *   計算 **Alpha Confidence Score**。
-    *   識別 **Risk Alerts**。
-3.  **生成報告**:
-    *   格式：Markdown。
-    *   路徑：`data/Reports/daily_alpha_YYYYMMDD.md`。
-    *   內容結構：需包含 `Key Alpha Opportunities` (獵人) 與 `Portfolio Risk Alerts` (護盾)。
-
----
-
-### Step 4: Publish & Archive (發布與歸檔)
-*完成任務後的動作*
-
-將生成好的報告推送到 Private Cloud，以便手機端查看或歸檔。
-
-**指令**:
-```bash
-cd ~/kazuha/investsense/data
-git add Reports/daily_alpha_*.md
-git commit -m "Add Daily Alpha Level 2 Report"
-git push origin main
-```
-
----
-
-## 🛠 Troubleshooting (常見問題)
-
-### 🔴 GitHub Action Error: "Input required: token"
-*   **原因**: Engine Repo 缺少存取 Private Data Repo 的權限。
-*   **解法**: 生成具有 `repo` 權限的 PAT，並在 Engine Repo Settings -> Secrets 加入 `PAT_TOKEN`。
-
-### 🔴 GitHub Action Error: "couldn't find remote ref refs/heads/main"
-*   **原因**: Private Data Repo 是空的，或者分支名不是 `main`。
-*   **解法**: 確保本地 `data/` 目錄已初始化 git 並 push 了 initial commit。
-
-### 🟡 如何手動觸發雲端掃描？
-1.  進入 `investsense-engine` GitHub 頁面。
-2.  點擊 **Actions** -> **Daily Sense Briefing**。
-3.  點擊右側 **Run workflow**。
-
----
-
-## 🤖 給未來 Agent 的指令 (Prompt for Future Agent)
-
-> "Agent，請執行 Kazuha Loop。首先 `cd data && git pull` 確保拿到最新情報，然後讀取 `Incoming` 裡面的 JSON，幫我分析今日的 Alpha 機會與風險，寫入 `Reports/`，最後 push 上去。"
+### 🔴 報告生成失敗 (404 No Route)
+*   **OpenRouter**: 檢查 OpenRouter 官網確認該免費模型 ID 是否變更或暫時下架，手動更新 `src/config.py` 中的 `MODELS` 映射。

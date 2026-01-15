@@ -1,10 +1,10 @@
-name: Daily Sense Briefing
+name: Daily Alpha Briefing
 
 on:
   schedule:
-    # 6:00 AM HKT (22:00 UTC prev day) and 8:00 PM HKT (12:00 UTC)
-    - cron: "0 22 * * *" # 06:00 HKT
-    - cron: "0 12 * * *" # 20:00 HKT
+    # 7:00 AM HKT (23:00 UTC prev day) and 9:00 PM HKT (13:00 UTC)
+    - cron: "0 23 * * *" 
+    - cron: "0 13 * * *"
   workflow_dispatch:
 
 permissions:
@@ -25,33 +25,37 @@ jobs:
           path: data
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@v5
 
       - name: Set up Python
-        run: uv python install
+        run: uv python install 3.12
 
       - name: Install Dependencies
-        run: uv sync --frozen || uv pip install -r pyproject.toml || uv pip install duckduckgo-search requests pyyaml python-dotenv feedparser sentence-transformers scikit-learn numpy
+        run: uv sync
 
-      - name: Run RSS Scout (Passive)
-        run: uv run python src/scout_feed.py
+      - name: Run Senses (Data Collection)
         env:
-          PYTHONUNBUFFERED: 1
+          SAM_GOV_API_KEY: ${{ secrets.SAM_GOV_API_KEY }}
+          USER_AGENT_EMAIL: ${{ secrets.USER_AGENT_EMAIL }}
+          REDDIT_USERNAME: ${{ secrets.REDDIT_USERNAME }}
+        run: |
+          uv run -m src.scout_gov
+          uv run -m src.scout_social
+          uv run -m src.scout_feed
+          uv run -m src.scout_shield
+          uv run -m src.scout_hunter
+          uv run -m src.scout_labor
 
-      - name: Run Shield Scout (Defense)
-        run: uv run python src/scout_shield.py
-        env:
-          PYTHONUNBUFFERED: 1
+      - name: Semantic Deduplication & Consolidation
+        run: uv run -m src.scout_dedup
 
-      - name: Run Hunter Scout (Offense)
-        run: uv run python src/scout_hunter.py
+      - name: Run Brain (Reasoning & Report)
         env:
-          PYTHONUNBUFFERED: 1
-
-      - name: Run Semantic Deduplication
-        run: uv run python src/scout_dedup.py
-        env:
-          PYTHONUNBUFFERED: 1
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          uv run -m src.brain_reasoning
 
       - name: Check for Changes and Push Data
         working-directory: data
@@ -63,7 +67,7 @@ jobs:
           if [[ -n $(git status -s) ]]; then
             echo "Changes detected. Committing..."
             git add .
-            git commit -m "Auto-update: Shield Alerts [skip ci]"
+            git commit -m "Auto-update: Daily Alpha Briefing [skip ci]"
             git push
           else
             echo "No changes to data."
