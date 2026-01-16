@@ -6,13 +6,18 @@ import yaml
 import os
 from datetime import datetime
 from src.config import REDDIT_USER_AGENT, PATHS, STRATEGY
+from src.config import REDDIT_USER_AGENT, PATHS, STRATEGY, REDDIT_USERNAME
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 class ScoutSocial:
     def __init__(self):
-        self.headers = {"User-Agent": REDDIT_USER_AGENT}
+        # Professional User-Agent to avoid 403
+        self.headers = {
+            "User-Agent": f"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 KazuhaInvest/{REDDIT_USERNAME}"
+        }
+        self.search_url = "https://www.reddit.com/search.json"
         self.limit = STRATEGY.get("MAX_SCOUT_RESULTS", 5)
 
     def _get_target_keywords(self):
@@ -41,13 +46,12 @@ class ScoutSocial:
         
         results = []
         for keyword in keywords:
-            # Politeness & Rate limit management
-            time.sleep(2) 
-            url = f"https://www.reddit.com/search.json"
-            params = {"q": keyword, "sort": "new", "limit": self.limit}
+            logger.info(f"Reddit searching: {keyword}...")
+            time.sleep(2) # Politeness to avoid 403/429
+            params = {"q": keyword, "sort": "new", "limit": 10}
 
             try:
-                response = requests.get(url, headers=self.headers, params=params, timeout=10)
+                response = requests.get(self.search_url, headers=self.headers, params=params, timeout=20)
                 if response.status_code == 200:
                     children = response.json().get("data", {}).get("children", [])
                     for post in children:

@@ -43,13 +43,19 @@ def hunt_theme(theme, keywords, depth=3):
     print(f"Hunting Theme: {theme} (Depth: {depth})...")
     
     try:
-        with DDGS() as ddgs:
-            news_results = ddgs.news(keywords=query, region="wt-wt", safesearch="off", max_results=depth)
-            for res in news_results:
-                res['theme'] = theme
-                res['source_type'] = "Hunter"
-                results.append(res)
-            time.sleep(1)
+        # Add random sleep before making the request
+        time.sleep(random.uniform(5, 10))
+
+        if ddgs_session:
+            news_results = ddgs_session.news(keywords=query, region="wt-wt", safesearch="off", max_results=depth)
+        else:
+            with DDGS() as ddgs:
+                news_results = ddgs.news(keywords=query, region="wt-wt", safesearch="off", max_results=depth)
+        
+        for res in news_results:
+            res['theme'] = theme
+            res['source_type'] = "Hunter"
+            results.append(res)
     except Exception as e:
         print(f"Error hunting {theme}: {e}")
         

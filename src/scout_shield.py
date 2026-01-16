@@ -1,8 +1,10 @@
+```python
 import yaml
 import json
 import time
 import os
 from datetime import datetime
+import random # Added random import
 try:
     from ddgs import DDGS
 except ImportError:
