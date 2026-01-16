@@ -1,33 +1,50 @@
 import json
 import time
 import os
+import yaml
 from datetime import datetime
 from duckduckgo_search import DDGS
 
 OUTPUT_DIR = "data/Incoming"
+THEMES_PATH = "data/themes.yml"
+MISSIONS_PATH = "data/active_missions.yml"
 
-# From README Section 8
-MACRO_THEMES = {
-    "Advanced Nuclear": ["SMR", "Uranium", "Kairos Power", "TerraPower"],
-    "AI Infrastructure": ["Data Centers", "Liquid Cooling", "GPU Supply Chain"],
-    "Autonomous Vehicles": ["FSD", "Robotaxi", "Waymo", "Regulation"],
-    "Space Tech": ["Satellite Constellations", "Reusable Rockets", "Space Debris"],
-    "Photonics": ["Optical Interconnects", "Silicon Photonics", "CPO"],
-    "Solid State Battery": ["QuantumScape", "Energy Density", "EV Range"]
-}
+def load_yaml(path):
+    if not os.path.exists(path):
+        return {}
+    with open(path, 'r') as f:
+        return yaml.safe_load(f) or {}
 
-def hunt_theme(theme, keywords):
+def save_yaml(path, data):
+    with open(path, 'w') as f:
+        yaml.safe_dump(data, f)
+
+def filter_active_missions(missions_data):
+    """Removes expired missions based on current date."""
+    if not missions_data or 'active_missions' not in missions_data:
+        return []
+    
+    today = datetime.now().strftime("%Y-%m-%d")
+    valid_missions = []
+    
+    for m in missions_data['active_missions']:
+        if m.get('expires_at', '9999-12-31') >= today:
+            valid_missions.append(m)
+        else:
+            print(f"Mission '{m.get('theme')}' expired. Removing.")
+            
+    return valid_missions
+
+def hunt_theme(theme, keywords, depth=3):
     results = []
-    # Query: "Advanced Nuclear" (SMR OR Uranium OR ...)
     query_part = " OR ".join([f'"{k}"' for k in keywords])
     query = f'"{theme}" ({query_part})'
     
-    print(f"Hunting: {theme}...")
+    print(f"Hunting Theme: {theme} (Depth: {depth})...")
     
     try:
         with DDGS() as ddgs:
-            # broader search
-            news_results = ddgs.news(keywords=query, region="wt-wt", safesearch="off", max_results=3)
+            news_results = ddgs.news(keywords=query, region="wt-wt", safesearch="off", max_results=depth)
             for res in news_results:
                 res['theme'] = theme
                 res['source_type'] = "Hunter"
@@ -44,17 +61,33 @@ def main():
         
     all_findings = []
     
-    print(f"Starting Hunter Protocol for {len(MACRO_THEMES)} themes...")
+    # 1. Load Static Themes
+    themes_data = load_yaml(THEMES_PATH)
+    static_themes = themes_data.get('themes', [])
     
-    for theme, keywords in MACRO_THEMES.items():
-        findings = hunt_theme(theme, keywords)
+    # 2. Load and Filter Dynamic Missions
+    missions_data = load_yaml(MISSIONS_PATH)
+    active_missions = filter_active_missions(missions_data)
+    
+    # Update missions file (remove expired ones)
+    save_yaml(MISSIONS_PATH, {'active_missions': active_missions})
+    
+    print(f"Starting Hunter Protocol. Static: {len(static_themes)} | Dynamic: {len(active_missions)}")
+    
+    # Process Static Themes
+    for t in static_themes:
+        findings = hunt_theme(t['name'], t['keywords'], depth=3)
+        all_findings.extend(findings)
+        
+    # Process Dynamic Missions (Greater Depth)
+    for m in active_missions:
+        findings = hunt_theme(m['theme'], m['keywords'], depth=m.get('depth', 15))
         all_findings.extend(findings)
         
     # Save results
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_file = os.path.join(OUTPUT_DIR, f"hunter_results_{timestamp}.json")
-    
     if all_findings:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_file = os.path.join(OUTPUT_DIR, f"hunter_results_{timestamp}.json")
         with open(output_file, 'w') as f:
             json.dump(all_findings, f, indent=2)
         print(f"Captured {len(all_findings)} signals to {output_file}")
