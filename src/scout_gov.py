@@ -21,27 +21,61 @@ class ScoutGov:
 
     def _get_target_keywords(self):
         keywords = set()
-        # Portfolio
+        # Portfolio: Only use company names for Gov scouts, people names are usually noise here
         try:
             with open(PATHS["PORTFOLIO"], 'r') as f:
                 data = yaml.safe_load(f)
                 for asset in data.get('portfolio', []):
+                    # We prioritize the asset Name over the Keywords list to save quota
+                    keywords.add(asset.get('name'))
+                    # Filter out obvious people names from sub-keywords if needed
+                    # For now, let's keep it simple and just use the full list but deduplicated
                     keywords.update(asset.get('keywords', []))
         except: pass
+        
         # Active Missions
         try:
             with open(PATHS["MISSIONS"], 'r') as f:
                 data = yaml.safe_load(f)
                 for m in data.get('active_missions', []):
+                    keywords.add(m.get('theme'))
                     keywords.update(m.get('keywords', []))
         except: pass
-        return list(keywords)
+        
+        # REMOVE OBVIOUS NOISE (People typically don't get govt contracts)
+        NOISE = ["Elon Musk", "Peter Beck", "Suresh Venkatesan"]
+        clean_keywords = [k for k in keywords if k not in NOISE]
+        
+        return list(set(clean_keywords))
+
+    def _request_with_backoff(self, url, params=None, method='GET', json_data=None):
+        """Helper to handle Rate Limiting (429) gracefully."""
+        for attempt in range(3):
+            try:
+                if method == 'GET':
+                    response = requests.get(url, params=params, timeout=30)
+                else:
+                    response = requests.post(url, json=json_data, timeout=30)
+                
+                if response.status_code == 200:
+                    return response
+                elif response.status_code == 429:
+                    wait_time = (attempt + 1) * 10
+                    logger.warning(f"Rate limited (429). Waiting {wait_time}s before retry...")
+                    time.sleep(wait_time)
+                else:
+                    logger.debug(f"Request failed with {response.status_code}")
+                    return None
+            except Exception as e:
+                logger.error(f"Request error: {e}")
+                break
+        return None
 
     def fetch_us_spending(self, keywords, start_date, end_date):
         logger.info(f"Scouting US Spending (Min: ${self.min_value})...")
         results = []
         for keyword in keywords:
-            time.sleep(0.5)
+            time.sleep(1) # Politeness
             payload = {
                 "filters": {
                     "keywords": [keyword],
@@ -49,97 +83,60 @@ class ScoutGov:
                     "award_type_codes": ["A", "B", "C", "D"]
                 },
                 "fields": ["Award ID", "Recipient Name", "Award Amount", "Description", "Action Date"],
-                "limit": 10
+                "limit": 5
             }
-            try:
-                response = requests.post(self.us_spending_url, json=payload, timeout=30)
-                if response.status_code == 200:
-                    hits = response.json().get("results", [])
-                    for hit in hits:
-                        if hit.get("Award Amount", 0) >= self.min_value:
-                            action_date = hit.get("Action Date")
-                            if not action_date:
-                                action_date = start_date
-                                
-                            results.append({
-                                "source": "US Spending",
-                                "keyword": keyword,
-                                "title": f"Contract to {hit.get('Recipient Name')}",
-                                "amount": hit.get("Award Amount"),
-                                "date": action_date,
-                                "description": hit.get("Description", "")
-                            })
-            except Exception as e:
-                logger.error(f"US Spending failed: {e}")
-        return results
-
-    def fetch_acq_gateway(self, keywords):
-        logger.info("Scouting Acquisition Gateway...")
-        results = []
-        headers = {"x-api-key": self.api_key}
-        for keyword in keywords:
-            time.sleep(0.5)
-            try:
-                response = requests.get(self.acq_gateway_url, headers=headers, params={"search": keyword}, timeout=20)
-                if response.status_code == 200:
-                    data = response.json()
-                    if isinstance(data, list):
-                        for item in data:
-                            results.append({
-                                "source": "AcqGateway",
-                                "keyword": keyword,
-                                "title": item.get("title"),
-                                "summary": item.get("summary"),
-                                "type": item.get("type")
-                            })
-            except: pass
-        return results
-
-    def fetch_contract_awards(self, keywords):
-        logger.info("Scouting SAM.gov Contract Awards...")
-        results = []
-        for keyword in keywords:
-            time.sleep(0.5)
-            try:
-                response = requests.get(self.awards_url, params={"api_key": self.api_key, "q": keyword, "limit": 10}, timeout=30)
-                if response.status_code == 200:
-                    awards = response.json().get("awards", []) or response.json().get("results", [])
-                    if isinstance(awards, list):
-                        for award in awards:
-                            results.append({
-                                "source": "SAM.gov Awards",
-                                "keyword": keyword,
-                                "title": f"Award {award.get('piid')}",
-                                "awardee": award.get("awardee", {}).get("name"),
-                                "amount": award.get("ultimateContractValue"),
-                                "date": award.get("dateSigned")
-                            })
-            except: pass
+            resp = self._request_with_backoff(self.us_spending_url, method='POST', json_data=payload)
+            if resp:
+                hits = resp.json().get("results", [])
+                for hit in hits:
+                    if hit.get("Award Amount", 0) >= self.min_value:
+                        results.append({
+                            "source": "US Spending",
+                            "keyword": keyword,
+                            "title": f"Contract to {hit.get('Recipient Name')}",
+                            "amount": hit.get("Award Amount"),
+                            "date": hit.get("Action Date") or start_date,
+                            "description": hit.get("Description", "")
+                        })
         return results
 
     def fetch_opportunities(self):
         keywords = self._get_target_keywords()
+        logger.info(f"Scouting Gov for {len(keywords)} clean keywords...")
+        
         today = datetime.datetime.now()
         lookback = today - datetime.timedelta(days=30)
         posted_from = lookback.strftime("%m/%d/%Y")
         posted_to = today.strftime("%m/%d/%Y")
 
         all_results = []
-        # 1. Opportunities
         for keyword in keywords:
-            time.sleep(0.5)
-            try:
-                response = requests.get(self.opps_url, params={"api_key": self.api_key, "postedFrom": posted_from, "postedTo": posted_to, "q": keyword, "active": "yes"}, timeout=30)
-                if response.status_code == 200:
-                    opps = response.json().get("opportunitiesData", []) or response.json().get("data", [])
-                    for opp in opps:
-                        all_results.append({"source": "SAM.gov", "keyword": keyword, "title": opp.get("title"), "agency": opp.get("organizationHierarchy", [{}])[0].get("name"), "date": opp.get("postedDate"), "url": opp.get("uiLink")})
-            except: pass
+            time.sleep(1)
+            params = {
+                "api_key": self.api_key,
+                "postedFrom": posted_from,
+                "postedTo": posted_to,
+                "q": keyword,
+                "active": "yes"
+            }
+            resp = self._request_with_backoff(self.opps_url, params=params)
+            if resp:
+                opps = resp.json().get("opportunitiesData", []) or resp.json().get("data", [])
+                for opp in opps:
+                    all_results.append({
+                        "source": "SAM.gov",
+                        "keyword": keyword,
+                        "title": opp.get("title"),
+                        "agency": opp.get("organizationHierarchy", [{}])[0].get("name"),
+                        "date": opp.get("postedDate"),
+                        "url": opp.get("uiLink")
+                    })
+            else:
+                # If we keep getting None (429 or death), stop this loop to save future quota
+                pass
 
-        # 2. Add Awards, Spending, Gateway
-        all_results.extend(self.fetch_contract_awards(keywords))
+        # US Spending usually has higher quota or different limits
         all_results.extend(self.fetch_us_spending(keywords, lookback.strftime("%Y-%m-%d"), today.strftime("%Y-%m-%d")))
-        all_results.extend(self.fetch_acq_gateway(keywords))
 
         self._save_results(all_results)
 
@@ -149,7 +146,7 @@ class ScoutGov:
         filename = f"{PATHS['INCOMING']}/gov_signals_{timestamp}.json"
         with open(filename, 'w') as f:
             json.dump(results, f, indent=2)
-        logger.info(f"Saved {len(results)} gov signals.")
+        logger.info(f"Saved {len(results)} gov intelligence points.")
 
 if __name__ == "__main__":
     scout = ScoutGov()
