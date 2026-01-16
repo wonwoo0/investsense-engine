@@ -2,9 +2,10 @@ name: Daily Alpha Briefing
 
 on:
   schedule:
-    # 7:00 AM HKT (23:00 UTC prev day) and 9:00 PM HKT (13:00 UTC)
-    - cron: "0 23 * * *" 
-    - cron: "0 13 * * *"
+    # GMT 9:48 PM (21:48), 8:03 AM (08:03), 12:13 AM (00:13)
+    - cron: "48 21 * * *"
+    - cron: "3 8 * * *"
+    - cron: "13 0 * * *"
   workflow_dispatch:
 
 permissions:
@@ -57,18 +58,18 @@ jobs:
         run: |
           uv run -m src.brain_reasoning
 
+
       - name: Check for Changes and Push Data
         working-directory: data
         run: |
           git config user.name "Kazuha Bot"
           git config user.email "bot@investsense.ai"
 
-          # Check if there are changes
+          # 檢查有無新 missions 或者新報告
+          git add .  # 呢度會包埋 active_missions.yml
           if [[ -n $(git status -s) ]]; then
-            echo "Changes detected. Committing..."
-            git add .
-            git commit -m "Auto-update: Daily Alpha Briefing [skip ci]"
+            git commit -m "Capture daily alpha and update missions [skip ci]"
             git push
           else
-            echo "No changes to data."
+            echo "No changes detected."
           fi

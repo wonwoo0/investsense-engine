@@ -1,44 +1,59 @@
-# Kazuha Invest 2.0 - Scoring Rubric
+# Kazuha Invest 2.0 - Scoring Rubric (V3 - Professional Quant & Execution)
 
 ## Purpose
-This document provides the Sisyphus AI with a rubric for generating Confidence scores for Alpha Opportunities and Risk Scores for Portfolio Alerts within the Daily Alpha Briefing. It also serves as a template for `brain_review.py` to propose adjustments based on monthly backtesting.
+This document defines the quantitative framework for AI-generated scores in the Daily Alpha Briefing. It ensures consistency, accounts for execution reality, and provides a structured protocol for `brain_review.py` to recalibrate the system's weights based on backtesting results.
 
-## General Scoring Principles
+---
 
-*   **Confidence (Alpha Opportunity)**:
-    *   **Scale**: 0-100. Higher score indicates stronger conviction.
-    *   **Factors**:
-        *   **Strength of Signal**: How clear and impactful is the news/event? (e.g., policy change > general trend).
-        *   **Directness of Link**: How directly does the news link to the identified Alpha?
-        *   **Portfolio Relevance**: How significant is the opportunity for the current portfolio or defined macro themes?
-        *   **Uniqueness/Arbitrage**: How early is this signal? Is it widely known? (Time Arbitrage).
-        *   **Source Credibility**: Reliability of the news source.
-    *   **Threshold for Alert**: >95 (for Telegram notification).
+## 1. Alpha Confidence Score (0-100)
+Used to rank opportunities. High score = High conviction + High asymmetry.
 
-*   **Risk Score (Portfolio Alert)**:
-    *   **Scale**: 0-100. Higher score indicates greater perceived risk.
-    *   **Factors**:
-        *   **Severity of Event**: How negative or impactful is the event? (e.g., fraud > minor delay).
-        *   **Directness of Impact**: How directly does it impact the specific portfolio asset?
-        *   **Magnitude of Impact**: Potential financial or reputational damage.
-        *   **Imminence**: How quickly could the risk materialize?
-        *   **Contagion/Systemic Risk**: Could it spread to other assets or the broader market?
-        *   **Source Credibility**: Reliability of the news source.
-    *   **Threshold for Alert**: >90 (for Telegram notification).
+### Core Weighted Factors:
+| Factor | Weight | High Score Criteria | Low Score Criteria |
+| :--- | :--- | :--- | :--- |
+| **Evidence Purity** | 25% | Verified Hard Data (10-K, Terminals). | Narrative, Hype, or Rumors. |
+| **Risk/Reward Asymmetry** | 20% | > 4:1 Upside/Downside ratio. | 1:1 or unknown asymmetry. |
+| **Directness of Link** | 15% | Direct impact on terminal valuation. | Vague sector "tailwinds." |
+| **Crowdedness Discount** | 15% | Non-consensus / Early discovery. | Front-page news / Crowded trade. |
+| **Time Arbitrage** | 15% | Market is mispricing a catalyst. | Catalyst is fully priced-in. |
+| **Source Integrity** | 10% | Top-tier reporting / Official data. | Social media hype / Unverified blogs. |
 
-## Adjustment Guidelines (for `brain_review.py`)
+**Threshold for Telegram Alert: >95**
 
-Based on monthly backtesting results from `brain_review.py`, adjustments to Sisyphus's internal interpretation of these factors may be suggested here.
+---
 
-*   **If Alpha predictions with Confidence > 95 consistently underperform:**
-    *   Suggest increasing the "Strength of Signal" or "Directness of Link" factor weight.
-    *   Suggest being more conservative on "Uniqueness/Arbitrage" assessment.
-*   **If Alpha predictions with Confidence < 70 consistently outperform:**
-    *   Suggest being more aggressive on "Portfolio Relevance" or "Source Credibility" factor weight.
-*   **If Risk predictions with Risk Score > 90 consistently fail to materialize or are overblown:**
-    *   Suggest increasing "Severity of Event" or "Magnitude of Impact" factor weight.
-    *   Suggest being more conservative on "Imminence" or "Contagion" assessment.
-*   **If significant risks are missed (false negatives):**
-    *   Suggest broadening the interpretation of "Risk Type" or lowering the bar for "Directness of Impact".
+## 2. Risk Score (0-100)
+Used for Portfolio Alerts. High score = Imminent systemic or fundamental threat.
 
-(This section is a placeholder for future automated adjustments. Initially, `brain_review.py` will log suggestions for manual review.)
+### Core Weighted Factors:
+| Factor | Weight | High Score Criteria | Low Score Criteria |
+| :--- | :--- | :--- | :--- |
+| **Severity & Irreversibility** | 30% | "Game Over" events (Fraud, Defaults). | Temporary setbacks. |
+| **Liquidity & Execution** | 20% | Wide spreads / Low ADV / Exit risk. | High liquidity / Narrow spreads. |
+| **Systemic Contagion** | 15% | Ripple effect across sectors/macro. | Isolated incident. |
+| **Imminence** | 15% | Materializes in < 5 trading days. | Vague long-term threat. |
+| **Cluster Exposure** | 10% | Correlated with existing heavy holdings. | Diversified / Uncorrelated. |
+| **Source Integrity** | 10% | Documented evidence / Fact-checking. | Rumor / Sentiment-driven. |
+
+**Threshold for Telegram Alert: >90**
+
+---
+
+## 3. Adjustment Protocol (for `brain_review.py`)
+This section maps backtesting failure modes to specific rubric modifications.
+
+### Failure Mode: "False Positives" (High Confidence, Poor Performance)
+- **If accuracy @ Confidence > 90 is < 50%**: Decrease **Source Integrity** weight and increase **Evidence Purity** requirements.
+- **If performance lags after 30 days**: Increase **Time Arbitrage** penalty (market was already efficient).
+- **If "Hype" winners fail**: Apply a mandatory -20 point penalty for any score purely based on **Narrative**.
+
+### Failure Mode: "False Negatives" (Low Confidence, High Performance)
+- **If missed opportunities were "Non-Consensus"**: Increase the weight of **Crowdedness Discount** (reward early hunting).
+- **If performance was macro-driven**: Adjust **Macro Strategist** prompt weights within the synthesis logic.
+
+### Failure Mode: "Risk Misses" (Low Risk Score, Significant Drawdown)
+- **If drawdowns were liquidity-driven**: Increase the weight of **Liquidity & Execution** risk factor.
+- **If losses were correlated**: Increase **Cluster Exposure** penalty for correlated assets.
+
+---
+*(This rubric is a living document. Initially, brain_review.py will propose changes in the monthly report for manual approval.)*
