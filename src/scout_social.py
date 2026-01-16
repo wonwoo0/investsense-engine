@@ -44,7 +44,7 @@ class ScoutSocial:
 
     def fetch_reddit(self):
         keywords = self._get_target_keywords()
-        logger.info(f"Scouting Reddit for keywords: {keywords}")
+        logger.info(f"Scouting Reddit for keywords: {len(keywords)} keywords")
         
         results = []
         for i, keyword in enumerate(keywords):

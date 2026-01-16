@@ -128,10 +128,9 @@ def main():
         with open(output_file, 'w') as f:
             json.dump(all_alerts, f, indent=2)
         print(f"🛡️  Shield: {len(all_alerts)} potential risks detected. Saved to {output_file}")
+        print("⚠️  Review alerts immediately.")
     else:
         print("✅ No immediate risks found for " + ", ".join([t['ticker'] for t in targets]))
-    
-    print("System Clean. No risks detected.")
 
 if __name__ == "__main__":
     main()
