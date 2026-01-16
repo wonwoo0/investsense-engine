@@ -5,7 +5,7 @@ description = "Kazuha Invest 2.0: The Anticipatory Intelligence System"
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
-    "duckduckgo-search>=6.0.0",
+    "ddgs>=1.0.0",
     "requests>=2.31.0",
     "pyyaml>=6.0.1",
     "python-dotenv>=1.0.0",

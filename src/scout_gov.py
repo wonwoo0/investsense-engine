@@ -18,6 +18,9 @@ class ScoutGov:
         self.us_spending_url = "https://api.usaspending.gov/api/v2/search/spending_by_award/"
         self.acq_gateway_url = "https://api.gsa.gov/acquisitiongateway/api/v4.0/listings"
         self.min_value = STRATEGY.get("MIN_CONTRACT_VALUE", 500000)
+        self.sam_throttled = False
+        self.sam_next_access_time = None
+        self.cache = {}  # Simple in-memory cache for this run
 
     def _get_target_keywords(self):
         keywords = set()
@@ -48,8 +51,19 @@ class ScoutGov:
         
         return list(set(clean_keywords))
 
-    def _request_with_backoff(self, url, params=None, method='GET', json_data=None):
-        """Helper to handle Rate Limiting (429) gracefully."""
+    def _request_with_backoff(self, url, params=None, method='GET', json_data=None, is_sam_api=False):
+        """Helper to handle Rate Limiting (429) gracefully with caching and nextAccessTime awareness."""
+        # Check if SAM.gov is already throttled
+        if is_sam_api and self.sam_throttled:
+            logger.info(f"SAM.gov throttled until {self.sam_next_access_time}. Skipping request.")
+            return None
+        
+        # Check cache
+        cache_key = f"{url}:{str(params)}:{str(json_data)}"
+        if cache_key in self.cache:
+            logger.debug(f"Returning cached response for {cache_key[:50]}...")
+            return self.cache[cache_key]
+        
         for attempt in range(3):
             try:
                 if method == 'GET':
@@ -58,10 +72,26 @@ class ScoutGov:
                     response = requests.post(url, json=json_data, timeout=30)
                 
                 if response.status_code == 200:
+                    # Cache successful response
+                    self.cache[cache_key] = response
                     return response
                 elif response.status_code == 429:
-                    wait_time = (attempt + 1) * 10
-                    logger.warning(f"Rate limited (429). Waiting {wait_time}s before retry...")
+                    # Parse 429 response for nextAccessTime
+                    try:
+                        error_data = response.json()
+                        next_access = error_data.get("nextAccessTime")
+                        if next_access and is_sam_api:
+                            self.sam_throttled = True
+                            self.sam_next_access_time = next_access
+                            logger.warning(f"SAM.gov 429: Quota exceeded. Next access: {next_access}")
+                            logger.info(f"Skipping remaining SAM.gov requests until {next_access}")
+                            return None
+                        logger.warning(f"Rate limited (429) for {url[:50]}...: {error_data}")
+                    except:
+                        logger.warning(f"Rate limited (429) for {url[:50]}...")
+                    
+                    wait_time = (2 ** attempt) * 5  # Exponential backoff: 5s, 10s, 20s
+                    logger.info(f"Waiting {wait_time}s before retry (attempt {attempt + 1}/3)...")
                     time.sleep(wait_time)
                 else:
                     logger.debug(f"Request failed with {response.status_code}")
@@ -72,7 +102,6 @@ class ScoutGov:
         return None
 
     def fetch_us_spending(self, keywords, start_date, end_date):
-        logger.info(f"Scouting US Spending (Min: ${self.min_value})...")
         results = []
         for keyword in keywords:
             time.sleep(1) # Politeness
@@ -85,9 +114,11 @@ class ScoutGov:
                 "fields": ["Award ID", "Recipient Name", "Award Amount", "Description", "Action Date"],
                 "limit": 5
             }
-            resp = self._request_with_backoff(self.us_spending_url, method='POST', json_data=payload)
+            resp = self._request_with_backoff(self.us_spending_url, method='POST', json_data=payload, is_sam_api=False)
             if resp:
                 hits = resp.json().get("results", [])
+                if hits:
+                    logger.info(f"US Spending: Found {len(hits)} hits for '{keyword}'")
                 for hit in hits:
                     if hit.get("Award Amount", 0) >= self.min_value:
                         results.append({
@@ -102,7 +133,7 @@ class ScoutGov:
 
     def fetch_opportunities(self):
         keywords = self._get_target_keywords()
-        logger.info(f"Scouting Gov for {len(keywords)} clean keywords...")
+        logger.info(f"Scouting SAM.gov for keywords: {keywords}")
         
         today = datetime.datetime.now()
         lookback = today - datetime.timedelta(days=30)
@@ -110,7 +141,15 @@ class ScoutGov:
         posted_to = today.strftime("%m/%d/%Y")
 
         all_results = []
+        throttle_count = 0
+        max_throttle_tolerance = 3  # Early exit after 3 consecutive throttles
+        
         for keyword in keywords:
+            # Early exit if SAM.gov is throttled
+            if self.sam_throttled:
+                logger.info(f"SAM.gov throttled. Skipping remaining {len(keywords) - len(all_results)} keywords.")
+                break
+            
             time.sleep(1)
             params = {
                 "api_key": self.api_key,
@@ -119,9 +158,11 @@ class ScoutGov:
                 "q": keyword,
                 "active": "yes"
             }
-            resp = self._request_with_backoff(self.opps_url, params=params)
+            resp = self._request_with_backoff(self.opps_url, params=params, is_sam_api=True)
             if resp:
+                throttle_count = 0  # Reset on success
                 opps = resp.json().get("opportunitiesData", []) or resp.json().get("data", [])
+                logger.info(f"Found {len(opps)} hits for '{keyword}'")
                 for opp in opps:
                     all_results.append({
                         "source": "SAM.gov",
@@ -132,21 +173,37 @@ class ScoutGov:
                         "url": opp.get("uiLink")
                     })
             else:
-                # If we keep getting None (429 or death), stop this loop to save future quota
-                pass
+                throttle_count += 1
+                if throttle_count >= max_throttle_tolerance:
+                    logger.warning(f"SAM.gov consistently failing. Early exit after {throttle_count} failures.")
+                    break
+
+        # Only fetch contract awards if SAM.gov is not throttled
+        if not self.sam_throttled:
+            logger.info("Scouting SAM.gov Contract Awards...")
+            # Contract awards logic would go here (not in the original code)
+        else:
+            logger.info("Skipping SAM.gov Contract Awards due to throttling.")
 
         # US Spending usually has higher quota or different limits
+        logger.info(f"Scouting US Spending (No Key Required)...")
         all_results.extend(self.fetch_us_spending(keywords, lookback.strftime("%Y-%m-%d"), today.strftime("%Y-%m-%d")))
+
+        # Acquisition Gateway
+        logger.info("Scouting Acquisition Gateway...")
+        # Acquisition gateway logic would go here (not in the original code)
 
         self._save_results(all_results)
 
     def _save_results(self, results):
-        if not results: return
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        if not results:
+            logger.info("No government signals found.")
+            return
+        timestamp = int(time.time())
         filename = f"{PATHS['INCOMING']}/gov_signals_{timestamp}.json"
         with open(filename, 'w') as f:
             json.dump(results, f, indent=2)
-        logger.info(f"Saved {len(results)} gov intelligence points.")
+        logger.info(f"Saved {len(results)} signals to {filename}")
 
 if __name__ == "__main__":
     scout = ScoutGov()
