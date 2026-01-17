@@ -128,35 +128,45 @@ class ScoutGov:
         posted_to = today.strftime("%m/%d/%Y")
 
         all_results = []
-        for keyword in keywords:
-            logger.info(f"Gov search: {keyword}...")
-            time.sleep(random.uniform(2, 5))
-            params = {
-                "api_key": self.api_key,
-                "postedFrom": posted_from,
-                "postedTo": posted_to,
-                "q": f'"{keyword}"', # Precise search
-                "active": "yes"
-            }
-            resp = self._request_with_backoff(self.opps_url, params=params)
-            if resp:
-                data = resp.json()
-                opps = data.get("opportunitiesData", []) or data.get("data", []) or []
-                for opp in opps:
-                    opp_id = opp.get("noticeId") or opp.get("solicitationNumber")
-                    if opp_id and opp_id in self.history:
-                        continue # SELF-HEALING: Skip already processed items
-                    
-                    self.history.add(opp_id)
-                    all_results.append({
-                        "source": "SAM.gov",
-                        "keyword": keyword,
-                        "id": opp_id,
-                        "title": opp.get("title"),
-                        "agency": opp.get("organizationHierarchy", [{}])[0].get("name"),
-                        "date": opp.get("postedDate"),
-                        "url": opp.get("uiLink")
-                    })
+        BATCH_SIZE = 5
+        for i in range(0, len(keywords), BATCH_SIZE):
+            batch = keywords[i:i + BATCH_SIZE]
+            logger.info(f"Gov search batch {i // BATCH_SIZE + 1}: {len(batch)} keywords...")
+            
+            for keyword in batch:
+                logger.info(f"Gov search: {keyword}...")
+                time.sleep(random.uniform(2, 5))
+                params = {
+                    "api_key": self.api_key,
+                    "postedFrom": posted_from,
+                    "postedTo": posted_to,
+                    "q": f'"{keyword}"', # Precise search
+                    "active": "yes"
+                }
+                resp = self._request_with_backoff(self.opps_url, params=params)
+                
+                if resp:
+                    data = resp.json()
+                    opps = data.get("opportunitiesData", []) or data.get("data", []) or []
+                    for opp in opps:
+                        opp_id = opp.get("noticeId") or opp.get("solicitationNumber")
+                        if opp_id and opp_id in self.history:
+                            continue # SELF-HEALING: Skip already processed items
+                        
+                        self.history.add(opp_id)
+                        all_results.append({
+                            "source": "SAM.gov",
+                            "keyword": keyword,
+                            "id": opp_id,
+                            "title": opp.get("title"),
+                            "agency": opp.get("organizationHierarchy", [{}])[0].get("name"),
+                            "date": opp.get("postedDate"),
+                            "url": opp.get("uiLink")
+                        })
+            
+            # Batch Cooldown
+            logger.info("Batch complete. Resting for 30s...")
+            time.sleep(30)
         
         self._save_history()
         self._save_results(all_results)
