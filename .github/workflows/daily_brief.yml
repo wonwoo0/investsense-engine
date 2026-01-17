@@ -2,10 +2,8 @@ name: Daily Alpha Briefing
 
 on:
   schedule:
-    # GMT 9:48 PM (21:48), 8:03 AM (08:03), 12:13 AM (00:13)
-    - cron: "48 21 * * *"
-    - cron: "3 8 * * *"
-    - cron: "13 0 * * *"
+    # HKT 4:44 AM = UTC 20:44 (Previous Day)
+    - cron: "44 20 * * *"
   workflow_dispatch:
 
 permissions:
