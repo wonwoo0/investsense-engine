@@ -1,5 +1,6 @@
-import google.generativeai as genai
-from src.config import GEMINI_API_KEY, PATHS
+
+# import google.generativeai as genai (Removed)
+from src.config import PATHS
 import logging
 import json
 import yaml
@@ -8,10 +9,6 @@ import asyncio
 import argparse
 from datetime import datetime
 from src.notifier import send_telegram_message
-
-# Configure Gemini for Local Brain
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -53,12 +50,15 @@ def load_data():
     return news_data, portfolio_data, memory_content
 
 def generate_strategic_missions(news_data, memory_content):
-    """Phase 5: Local Brain Generates Strategic Missions."""
-    if not news_data or not GEMINI_API_KEY:
+    import requests
+    from src.config import OPENROUTER_API_KEY
+
+    """Phase 5: Local Brain Generates Strategic Missions (via OpenRouter/Nemotron)."""
+    if not news_data or not OPENROUTER_API_KEY:
         logger.warning("Skipping Strategic Mission Gen (No data or No Key).")
         return
 
-    logger.info("🧠 Brain is thinking about Strategic Missions...")
+    logger.info("🧠 Brain is thinking about Strategic Missions (via Nemotron)...")
     
     # Context Synthesis
     signals_summary = "\n".join([f"- {s.get('title')} ({s.get('source')})" for s in news_data[:30]])
@@ -92,13 +92,41 @@ def generate_strategic_missions(news_data, memory_content):
     ]
     """
     
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://kazuha.invest", 
+        "X-Title": "Kazuha Invest"
+    }
+    
+    payload = {
+        "model": "nvidia/nemotron-3-nano-30b-a3b:free",
+        "messages": [
+            {"role": "system", "content": "You are a strategic investment analyst AI. Output pure JSON."},
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.3,
+        "max_tokens": 1000
+    }
+
     try:
-        model = genai.GenerativeModel("gemini-1.5-pro-latest") # Use a capable model
-        response = model.generate_content(prompt, generation_config={"response_mime_type": "application/json"})
-        missions = json.loads(response.text)
-        
-        if missions:
-            _append_missions(missions)
+        response = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload, timeout=60)
+        if response.status_code == 200:
+            result = response.json()
+            content = result['choices'][0]['message']['content']
+            
+            # Clean Markdown formatting if present
+            if "```json" in content:
+                content = content.split("```json")[1].split("```")[0].strip()
+            elif "```" in content:
+                content = content.split("```")[1].split("```")[0].strip()
+                
+            missions = json.loads(content)
+            
+            if missions:
+                _append_missions(missions)
+        else:
+            logger.error(f"OpenRouter API Error: {response.status_code} - {response.text}")
             
     except Exception as e:
         logger.error(f"Strategic Mission Gen Failed: {e}")
