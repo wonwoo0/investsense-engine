@@ -7,6 +7,8 @@ load_dotenv()
 SAM_GOV_API_KEY = os.getenv("SAM_GOV_API_KEY")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
 # --- User Agents (Compliance & Rotation) ---
 USER_AGENT_EMAIL = os.getenv("USER_AGENT_EMAIL", "kazuha_admin@gmail.com")

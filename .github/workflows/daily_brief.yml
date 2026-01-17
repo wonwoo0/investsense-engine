@@ -34,30 +34,38 @@ jobs:
       - name: Install Dependencies
         run: uv sync
 
-      - name: Run Senses (Data Collection)
+      - name: Run Search 2.1 Pipeline
         env:
           SAM_GOV_API_KEY: ${{ secrets.SAM_GOV_API_KEY }}
           USER_AGENT_EMAIL: ${{ secrets.USER_AGENT_EMAIL }}
           REDDIT_USERNAME: ${{ secrets.REDDIT_USERNAME }}
-        run: |
-          uv run -m src.scout_gov
-          uv run -m src.scout_social
-          uv run -m src.scout_feed
-          uv run -m src.scout_shield
-          uv run -m src.scout_hunter
-          uv run -m src.scout_labor
-
-      - name: Semantic Deduplication & Consolidation
-        run: uv run -m src.scout_dedup
-
-      - name: Run Brain (Reasoning & Report)
-        env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          PYTHONPATH: .
         run: |
+          # 1. Gather (Scouts)
+          uv run -m src.scout_hunter
+          uv run -m src.scout_social
+          uv run -m src.scout_gov
+          # Legacy Scouts (Optional)
+          # uv run -m src.scout_shield 
+          # uv run -m src.scout_labor
+
+          # 2. Filter (Gatekeeper)
+          uv run -m src.scout_gatekeeper
+
+          # 3. React (Librarian)
+          uv run -m src.scout_librarian
+
+          # 3.5 Process Hot Pursuit Results (Gatekeeper Pass 2)
+          uv run -m src.scout_gatekeeper
+
+          # 4. Reason (Brain)
           uv run -m src.brain_reasoning
 
+          # 5. Archive (Cleanup)
+          uv run -m src.utils.archiver
 
       - name: Check for Changes and Push Data
         working-directory: data

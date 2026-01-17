@@ -3,6 +3,7 @@ import json
 import time
 import logging
 import datetime
+import random
 import requests
 import yaml
 from src.config import SAM_GOV_API_KEY, URLS, PATHS, STRATEGY
@@ -16,8 +17,25 @@ class ScoutGov:
         self.opps_url = URLS["SAM_OPPORTUNITIES"]
         self.awards_url = URLS["SAM_CONTRACTS"]
         self.us_spending_url = "https://api.usaspending.gov/api/v2/search/spending_by_award/"
-        self.acq_gateway_url = "https://api.gsa.gov/acquisitiongateway/api/v4.0/listings"
         self.min_value = STRATEGY.get("MIN_CONTRACT_VALUE", 500000)
+        self.history_file = "data/Knowledge/gov_history.json"
+        self._load_history()
+
+    def _load_history(self):
+        if os.path.exists(self.history_file):
+            try:
+                with open(self.history_file, 'r') as f:
+                    self.history = set(json.load(f))
+            except: self.history = set()
+        else:
+            self.history = set()
+
+    def _save_history(self):
+        try:
+            os.makedirs(os.path.dirname(self.history_file), exist_ok=True)
+            with open(self.history_file, 'w') as f:
+                json.dump(list(self.history), f)
+        except: pass
 
     def _get_target_keywords(self):
         keywords = set()
@@ -102,51 +120,55 @@ class ScoutGov:
 
     def fetch_opportunities(self):
         keywords = self._get_target_keywords()
-        logger.info(f"Scouting Gov for {len(keywords)} clean keywords...")
+        logger.info(f"🏛️ Gov Scouting (Smart History Mode) for {len(keywords)} keywords...")
         
         today = datetime.datetime.now()
-        lookback = today - datetime.timedelta(days=30)
+        lookback = today - datetime.timedelta(days=7) # Reduced lookback to save calls
         posted_from = lookback.strftime("%m/%d/%Y")
         posted_to = today.strftime("%m/%d/%Y")
 
         all_results = []
         for keyword in keywords:
-            time.sleep(1)
+            logger.info(f"Gov search: {keyword}...")
+            time.sleep(random.uniform(2, 5))
             params = {
                 "api_key": self.api_key,
                 "postedFrom": posted_from,
                 "postedTo": posted_to,
-                "q": keyword,
+                "q": f'"{keyword}"', # Precise search
                 "active": "yes"
             }
             resp = self._request_with_backoff(self.opps_url, params=params)
             if resp:
-                opps = resp.json().get("opportunitiesData", []) or resp.json().get("data", [])
+                data = resp.json()
+                opps = data.get("opportunitiesData", []) or data.get("data", []) or []
                 for opp in opps:
+                    opp_id = opp.get("noticeId") or opp.get("solicitationNumber")
+                    if opp_id and opp_id in self.history:
+                        continue # SELF-HEALING: Skip already processed items
+                    
+                    self.history.add(opp_id)
                     all_results.append({
                         "source": "SAM.gov",
                         "keyword": keyword,
+                        "id": opp_id,
                         "title": opp.get("title"),
                         "agency": opp.get("organizationHierarchy", [{}])[0].get("name"),
                         "date": opp.get("postedDate"),
                         "url": opp.get("uiLink")
                     })
-            else:
-                # If we keep getting None (429 or death), stop this loop to save future quota
-                pass
-
-        # US Spending usually has higher quota or different limits
-        all_results.extend(self.fetch_us_spending(keywords, lookback.strftime("%Y-%m-%d"), today.strftime("%Y-%m-%d")))
-
+        
+        self._save_history()
         self._save_results(all_results)
 
     def _save_results(self, results):
         if not results: return
+        os.makedirs(PATHS["INCOMING"], exist_ok=True)
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"{PATHS['INCOMING']}/gov_signals_{timestamp}.json"
         with open(filename, 'w') as f:
             json.dump(results, f, indent=2)
-        logger.info(f"Saved {len(results)} gov intelligence points.")
+        logger.info(f"Saved {len(results)} new gov intelligence points.")
 
 if __name__ == "__main__":
     scout = ScoutGov()

@@ -1,82 +1,140 @@
-import sys
-import os
-
-# Add project root to path BEFORE importing local modules
-sys.path.append(os.getcwd())
-
+import google.generativeai as genai
+from src.config import GEMINI_API_KEY, PATHS
+import logging
 import json
 import yaml
-import logging
-import argparse
+import os
 import asyncio
-import shutil
+import argparse
 from datetime import datetime
 from src.notifier import send_telegram_message
-from src.config import PATHS
+
+# Configure Gemini for Local Brain
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-def load_data(signals_file=None):
-    # 1. Load Signals (Latest consolidated file)
-    incoming_dir = PATHS["INCOMING"]
-    if not signals_file:
-        files = [f for f in os.listdir(incoming_dir) if f.startswith('consolidated_')]
-        if not files:
-            # Fallback to any json
-            files = [f for f in os.listdir(incoming_dir) if f.endswith('.json')]
-        
-        if not files:
-            logger.warning(f"No signal files found in {incoming_dir}")
-            return None, None
-            
-        files.sort(key=lambda x: os.path.getmtime(os.path.join(incoming_dir, x)))
-        signals_file = os.path.join(incoming_dir, files[-1])
-        logger.info(f"Auto-selected file for analysis: {signals_file}")
+# Constants
+PROCESSED_DIR = "data/Processed"
+MISSIONS_FILE = "data/active_missions.yml"
 
-    if not os.path.exists(signals_file):
-        logger.warning(f"No signals file found at {signals_file}")
-        return None, None
+def load_data():
+    """Search 2.1: Loads Processed signals (Cleaner than Incoming)."""
+    if not os.path.exists(PROCESSED_DIR):
+        logger.warning(f"No Processed directory found at {PROCESSED_DIR}")
+        return [], None
 
+    files = [f for f in os.listdir(PROCESSED_DIR) if f.endswith('.json')]
     news_data = []
-    try:
-        with open(signals_file, 'r') as f:
-            news_data = json.load(f)
-    except Exception as e:
-        logger.error(f"Failed to parse input file: {e}")
-        return None, None
+    
+    for f in files:
+        path = os.path.join(PROCESSED_DIR, f)
+        try:
+            with open(path, 'r') as file:
+                content = json.load(file)
+                if isinstance(content, list):
+                    news_data.extend(content)
+        except Exception as e:
+            logger.error(f"Error reading {f}: {e}")
 
-    # 2. Load Portfolio
+    # Load Active Context (Memory)
+    memory_path = "data/Knowledge/active_context.md"
+    memory_content = ""
+    if os.path.exists(memory_path):
+        with open(memory_path, 'r') as f:
+            memory_content = f.read()
+
+    # Load Portfolio
     with open(PATHS["PORTFOLIO"], 'r') as f:
         portfolio_data = yaml.safe_load(f)
 
-    return news_data, portfolio_data
+    return news_data, portfolio_data, memory_content
 
-def archive_incoming():
-    """Moves processed files from Incoming to Archive to prevent stale data in next run."""
-    incoming_dir = PATHS["INCOMING"]
-    archive_dir = PATHS["ARCHIVE"]
-    os.makedirs(archive_dir, exist_ok=True)
-    
-    files = [f for f in os.listdir(incoming_dir)]
-    if not files:
+def generate_strategic_missions(news_data, memory_content):
+    """Phase 5: Local Brain Generates Strategic Missions."""
+    if not news_data or not GEMINI_API_KEY:
+        logger.warning("Skipping Strategic Mission Gen (No data or No Key).")
         return
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    sub_archive = os.path.join(archive_dir, timestamp)
-    os.makedirs(sub_archive, exist_ok=True)
+    logger.info("🧠 Brain is thinking about Strategic Missions...")
     
-    for f in files:
-        src = os.path.join(incoming_dir, f)
-        dst = os.path.join(sub_archive, f)
-        try:
-            shutil.move(src, dst)
-        except Exception as e:
-            logger.error(f"Failed to archive {f}: {e}")
+    # Context Synthesis
+    signals_summary = "\n".join([f"- {s.get('title')} ({s.get('source')})" for s in news_data[:30]])
     
-    logger.info(f"Processed signals archived to {sub_archive}")
+    prompt = f"""
+    You are the Strategic Brain of Kazuha Invest.
+    
+    Recent Signals:
+    {signals_summary}
+    
+    Long-term Memory:
+    {memory_content}
+    
+    Analyze the trends over the last 7 days.
+    Identify 1-3 STRATEGIC, LONG-TERM search missions to add to our tracking list.
+    Rules:
+    1. Do NOT duplicate existing active missions.
+    2. Focus on "What comes next?" (e.g., Regulatory approval after a tech breakthrough).
+    3. Expiry should be 14-30 days.
 
-def prepare_context_file(news_data, portfolio_data):
+    Output JSON ONLY:
+    [
+        {{
+            "theme": "Title",
+            "keywords": ["k1", "k2"],
+            "reason": "Strategic rationale",
+            "priority": "medium",
+            "depth": 20,
+            "expires_at": "YYYY-MM-DD"
+        }}
+    ]
+    """
+    
+    try:
+        model = genai.GenerativeModel("gemini-1.5-pro-latest") # Use a capable model
+        response = model.generate_content(prompt, generation_config={"response_mime_type": "application/json"})
+        missions = json.loads(response.text)
+        
+        if missions:
+            _append_missions(missions)
+            
+    except Exception as e:
+        logger.error(f"Strategic Mission Gen Failed: {e}")
+
+def _append_missions(missions):
+    """Directly appends to active_missions.yml with deduplication."""
+    current_missions = {"active_missions": []}
+    
+    if os.path.exists(MISSIONS_FILE):
+        try:
+            with open(MISSIONS_FILE, 'r') as f:
+                current_missions = yaml.safe_load(f) or {"active_missions": []}
+        except: pass
+        
+    existing_themes = {m.get('theme') for m in current_missions.get('active_missions', [])}
+    
+    added_count = 0
+    for m in missions:
+        if m['theme'] in existing_themes:
+            continue
+            
+        m['source'] = 'local_brain'
+        m['created_at'] = datetime.now().strftime("%Y-%m-%d")
+        
+        current_missions['active_missions'].append(m)
+        existing_themes.add(m['theme'])
+        added_count += 1
+        
+    if added_count > 0:
+        with open(MISSIONS_FILE, 'w') as f:
+            yaml.dump(current_missions, f, sort_keys=False, allow_unicode=True)
+        logger.info(f"🧠 Added {added_count} Strategic Missions to active_missions.yml")
+    else:
+        logger.info("🧠 No new strategic missions added (Duplicates or Empty).")
+
+def prepare_context_file(news_data, portfolio_data, memory_content):
     date_str = datetime.now().strftime("%Y%m%d")
     report_dir = os.path.join(PATHS["REPORTS"], date_str)
     os.makedirs(report_dir, exist_ok=True)
@@ -87,6 +145,9 @@ def prepare_context_file(news_data, portfolio_data):
 ```yaml
 {yaml.dump(portfolio_data)}
 ```
+
+## Active Memory (Long-term)
+{memory_content}
 
 ## News Intelligence (Fresh Signals)
 ```json
@@ -99,12 +160,12 @@ def prepare_context_file(news_data, portfolio_data):
         f.write(context_str)
     
     logger.info(f"Context saved to: {context_path}")
-    print(f"\n[Ready] Context prepared at: {context_path}")
     return context_path
 
 async def send_source_summary(news_data):
     if not news_data:
-        await send_telegram_message("⚠️ 今日搜尋未發現任何新資料。已整理存檔。")
+        # await send_telegram_message("⚠️ 今日搜尋未發現任何新資料。")
+        pass
         return
 
     sources = set()
@@ -113,20 +174,20 @@ async def send_source_summary(news_data):
         sources.add(source)
     
     source_list = "\n".join([f"✅ {s}" for s in sorted(sources)])
-    message = f"🚀 *Kazuha 搜查完成*\n\n有效來源：\n{source_list}\n\n報告及上下文已準備好。請執行 V7 Flow 進行手動分析。"
+    message = f"🚀 *Kazuha 搜查完成 (Search 2.1)*\n\n有效來源：\n{source_list}\n\nLibrarian 已執行 Hot Pursuit。\nBrain 已生成策略任務。"
     await send_telegram_message(message)
 
 def main():
-    parser = argparse.ArgumentParser(description='InvestSense Brain Reasoning')
-    parser.add_argument('input_file', nargs='?', help='Path to specific signal file')
-    args = parser.parse_args()
-
-    news_data, portfolio_data = load_data(args.input_file)
-    if news_data and portfolio_data:
-        prepare_context_file(news_data, portfolio_data)
+    news_data, portfolio_data, memory = load_data()
+    
+    if news_data:
+        prepare_context_file(news_data, portfolio_data, memory)
         asyncio.run(send_source_summary(news_data))
-        # Archive files so next run doesn't include today's noise
-        archive_incoming()
+        
+        # Phase 5: Strategic Mission Gen
+        generate_strategic_missions(news_data, memory)
+        
+        # Note: Archive incoming is now handled by src/utils/archiver.py separately
     else:
         logger.error("No data available to process.")
 
